@@ -279,13 +279,11 @@ __parse__() {
         _field_ref="${_field_ref#"${_field_ref%%[! $'\n\r']*}"}"
         _field_ref="${_field_ref%"${_field_ref##*[! $'\n\r']}"}"
         [[ -z "$_field_ref" ]] && return 0
-
         local bt=$'\x60'
         local btt=$'\x60\x60\x60'
-
-        if [[ "$_field_ref" != *$'\n'* && "$_field_ref" != "::"* && "$_field_ref" != *"$btt"* && "$_field_ref" != [-*+]\ * && "$_field_ref" != [0-9]*.\ * ]]; then
+        if [[ "$_field_ref" != *$'\n'* && "$_field_ref" != "::"* && "$_field_ref" != *"$btt"* && "$_field_ref" != *"$$"* && "$_field_ref" != *"block.tex"* && "$_field_ref" != *"block.code"* && "$_field_ref" != [-*+]\ * && "$_field_ref" != [0-9]*.\ * ]]; then
             local l="$_field_ref"
-            if [[ "$l" == *["$bt"*_+\[\{]* ]]; then
+            if [[ "$l" == *["$bt"*_+\[\{\$]* ]]; then
                 local prefix rest inner suffix
                 l="${l//\\"$bt"/$'\x1F'}"
                 local -a m_codes=()
@@ -301,6 +299,21 @@ __parse__() {
                     ((m_i++))
                 done
                 l="${l//$'\x1F'/$bt}"
+                if [[ "$l" == *"$"* ]]; then
+                    local temp_line="$line"
+                    local -a masked_codes=()
+                    local m_idx=0
+                    line="$l"
+                    __parse_tex
+                    l="$line"
+                    line="$temp_line"
+                    local k_m
+                    for (( k_m=0; k_m<m_idx; k_m++ )); do
+                        m_codes[$m_i]="${masked_codes[$k_m]}"
+                        l="${l//%%MASKED_${k_m}%%/%%MASK${m_i}%%}"
+                        ((m_i++))
+                    done
+                fi
                 while [[ "$l" == *\*\**\*\** ]]; do
                     prefix="${l%%\*\**}"; rest="${l#*\*\*}"
                     inner="${rest%%\*\**}"; suffix="${rest#*\*\*}"
@@ -327,10 +340,6 @@ __parse__() {
                         l="${l/"$full"/<a href=\"${l_href}\">${l_text}</a>}"
                     done
                 fi
-                local i
-                for (( i=0; i<m_i; i++ )); do
-                    l="${l//%%MASK${i}%%/${m_codes[$i]}}"
-                done
                 if [[ "$l" == *"{{"* ]]; then
                     local temp_line="$line"
                     line="$l"
@@ -338,11 +347,14 @@ __parse__() {
                     l="$line"
                     line="$temp_line"
                 fi
+                local i
+                for (( i=0; i<m_i; i++ )); do
+                    l="${l//%%MASK${i}%%/${m_codes[$i]}}"
+                done
             fi
             REPLY="$l"
             return 0
         fi
-
         local nl=$'\n'
         local -a field_lines=()
         local old_ifs="$IFS"
@@ -352,7 +364,6 @@ __parse__() {
         field_lines=($body_tmp)
         IFS="$old_ifs"
         set +f
-
         local base_indent=-1
         local l stripped_ws ind
         local idx
@@ -368,15 +379,14 @@ __parse__() {
                 fi
             fi
         done
-
         local out=""
-        local in_inner=0 in_html_pre=0 list_depth=0 code_lang=""
-        local prefix rest inner suffix l_trim
+        local in_inner=0 in_html_pre=0 list_depth=0 after_block=0 first_code_line=0 code_lang=""
+        local -a tex_lines=()
+        local prefix rest inner suffix l_trim r_trim
         local -a LIST_INDENTS=() LIST_TYPES=()
         local list_item_re='^([[:space:]]*)([-*+]|[0-9]+\.)[[:space:]]+(.*)$'
         local link_re='\[([^]]+)\]\(([^)]+)\)'
         local ext_re='^(.*)\.(md|markdown|MD|MARKDOWN)([ \t#].*)?$'
-
         for l in "${field_lines[@]}"; do
             if (( base_indent > 0 )); then
                 if [[ -n "${l#"${l%%[![:space:]]*}"}" ]]; then
@@ -390,6 +400,87 @@ __parse__() {
                     [[ "$l" == [[:blank:]]* ]] && l="${l:1}"
                     l_trim="${l#"${l%%[![:space:]]*}"}"
                 fi
+                r_trim="${l_trim%"${l_trim##*[![:space:]]}"}"
+                if [[ "$r_trim" == "{{"*"block.code"*"}}" ]]; then
+                    local inner_c="${r_trim#\{\{}"
+                    inner_c="${inner_c%\}\}}"
+                    inner_c="${inner_c#"${inner_c%%[![:space:]]*}"}"
+                    inner_c="${inner_c%"${inner_c##*[![:space:]]}"}"
+                    if [[ "$inner_c" == "block.code"* ]]; then
+                        while (( list_depth > 0 )); do
+                            list_depth=$((list_depth - 1))
+                            out+="</li></${LIST_TYPES[list_depth]}>"
+                        done
+                        LIST_INDENTS=()
+                        LIST_TYPES=()
+                        out="${out%"${out##*[!$'\n']}"}"
+                        in_inner=2
+                        first_code_line=1
+                        local args="${inner_c#block.code}"
+                        local lang=""
+                        if [[ "$args" == *"lang="* ]]; then
+                            local tmp="${args##*lang=}"
+                            tmp="${tmp#\"}"
+                            tmp="${tmp#\'}"
+                            lang="${tmp%%[!a-zA-Z0-9_+-#]*}"
+                        fi
+                        local classes="hljs"
+                        if [[ -n "$lang" && "$lang" != "plaintext" && "$lang" != "none" ]]; then
+                            classes+=" language-${lang}"
+                        else
+                            classes+=" nohighlight"
+                        fi
+                        if [[ "$args" == *"numbered=true"* ]]; then
+                            classes+=" line-numbers"
+                        fi
+                        out+="<pre><code class=\"${classes}\">"
+                        continue
+                    fi
+                fi
+                if [[ "$r_trim" == "{{"*"block.tex"*"}}" ]]; then
+                    local inner_t="${r_trim#\{\{}"
+                    inner_t="${inner_t%\}\}}"
+                    inner_t="${inner_t#"${inner_t%%[![:space:]]*}"}"
+                    inner_t="${inner_t%"${inner_t##*[![:space:]]}"}"
+                    if [[ "$inner_t" == "block.tex" ]]; then
+                        while (( list_depth > 0 )); do
+                            list_depth=$((list_depth - 1))
+                            out+="</li></${LIST_TYPES[list_depth]}>"
+                        done
+                        LIST_INDENTS=()
+                        LIST_TYPES=()
+                        out="${out%"${out##*[!$'\n']}"}"
+                        in_inner=3
+                        tex_lines=()
+                        continue
+                    fi
+                fi
+                if [[ "$r_trim" == "$$"* ]]; then
+                    while (( list_depth > 0 )); do
+                        list_depth=$((list_depth - 1))
+                        out+="</li></${LIST_TYPES[list_depth]}>"
+                    done
+                    LIST_INDENTS=()
+                    LIST_TYPES=()
+                    out="${out%"${out##*[!$'\n']}"}"
+                    if [[ "$r_trim" == "$$" ]]; then
+                        in_inner=4
+                        tex_lines=()
+                        continue
+                    elif [[ "$r_trim" == "$$"*"$$" && ${#r_trim} -gt 4 ]]; then
+                        local tex_content="${r_trim#\$\$}"
+                        tex_content="${tex_content%\$\$}"
+                        local svg_output="${LATEX_MEM_CACHE["block:${tex_content}"]:-}"
+                        if [[ -z "$svg_output" ]]; then
+                            svg_output=$("$_WIKI_DIR/bin/latex" --stdout --dpr 0.4 <<< "$tex_content")
+                            svg_output="${svg_output//rgba(0,0,0,1)/var(--fg)}"
+                            LATEX_MEM_CACHE["block:${tex_content}"]="$svg_output"
+                        fi
+                        out+="<div class=\"latex\">${svg_output}</div>"
+                        after_block=1
+                        continue
+                    fi
+                fi
                 if [[ "$l_trim" == "$btt"* ]]; then
                     local fence_rest="${l_trim#"$btt"}"
                     fence_rest="${fence_rest%"${fence_rest##*[![:space:]]}"}"
@@ -400,18 +491,30 @@ __parse__() {
                         done
                         LIST_INDENTS=()
                         LIST_TYPES=()
+                        out="${out%"${out##*[!$'\n']}"}"
                         in_inner=1
+                        first_code_line=1
                         code_lang="$fence_rest"
-                        out+="${out:+$nl}<pre><code class=\"language-${code_lang}\">$nl"
+                        local classes="hljs"
+                        if [[ -n "$code_lang" && "$code_lang" != "plaintext" && "$code_lang" != "none" ]]; then
+                            classes+=" language-${code_lang}"
+                        else
+                            classes+=" nohighlight"
+                        fi
+                        out+="<pre><code class=\"${classes}\">"
                         continue
                     fi
                 fi
                 if (( in_html_pre == 1 )); then
-                    [[ "$l" == *"</pre>"* ]] && in_html_pre=0
+                    if [[ "$l" == *"</pre>"* ]]; then
+                        in_html_pre=0
+                        after_block=1
+                    fi
                     out+="${out:+$nl}$l"
                 elif [[ "$l" == *"<pre"* && "$l" != *"</pre>"* ]]; then
+                    out="${out%"${out##*[!$'\n']}"}"
                     in_html_pre=1
-                    out+="${out:+$nl}$l"
+                    out+="$l"
                 else
                     local is_list=0 indent="" marker=""
                     case "$l_trim" in
@@ -435,10 +538,13 @@ __parse__() {
                             done
                             LIST_INDENTS=()
                             LIST_TYPES=()
+                            after_block=1
                         fi
                     fi
-
-                    if [[ "$l" == *["$bt"*_+\[\{]* ]]; then
+                    if (( is_list == 0 && after_block == 1 )); then
+                        [[ -z "$l_trim" ]] && continue
+                    fi
+                    if [[ "$l" == *["$bt"*_+\[\{\$]* ]]; then
                         l="${l//\\"$bt"/$'\x1F'}"
                         local -a m_codes=()
                         local m_i=0
@@ -453,6 +559,21 @@ __parse__() {
                             ((m_i++))
                         done
                         l="${l//$'\x1F'/$bt}"
+                        if [[ "$l" == *"$"* ]]; then
+                            local temp_line="$line"
+                            local -a masked_codes=()
+                            local m_idx=0
+                            line="$l"
+                            __parse_tex
+                            l="$line"
+                            line="$temp_line"
+                            local k_m
+                            for (( k_m=0; k_m<m_idx; k_m++ )); do
+                                m_codes[$m_i]="${masked_codes[$k_m]}"
+                                l="${l//%%MASKED_${k_m}%%/%%MASK${m_i}%%}"
+                                ((m_i++))
+                            done
+                        fi
                         while [[ "$l" == *\*\**\*\** ]]; do
                             prefix="${l%%\*\**}"; rest="${l#*\*\*}"
                             inner="${rest%%\*\**}"; suffix="${rest#*\*\*}"
@@ -480,10 +601,6 @@ __parse__() {
                                 l="${l/"$full"/<a href=\"${l_href}\">${l_text}</a>}"
                             done
                         fi
-                        local i
-                        for (( i=0; i<m_i; i++ )); do
-                            l="${l//%%MASK${i}%%/${m_codes[$i]}}"
-                        done
                         if [[ "$l" == *"{{"* ]]; then
                             local temp_line="$line"
                             line="$l"
@@ -491,12 +608,17 @@ __parse__() {
                             l="$line"
                             line="$temp_line"
                         fi
+                        local i
+                        for (( i=0; i<m_i; i++ )); do
+                            l="${l//%%MASK${i}%%/${m_codes[$i]}}"
+                        done
                     fi
-
                     if (( is_list == 1 )); then
+                        after_block=0
                         local ltype="ul"
                         [[ "$marker" == [0-9]* ]] && ltype="ol"
                         if (( list_depth == 0 )); then
+                            out="${out%"${out##*[!$'\n']}"}"
                             LIST_INDENTS[$list_depth]="$indent"
                             LIST_TYPES[$list_depth]="$ltype"
                             list_depth=$((list_depth + 1))
@@ -524,16 +646,101 @@ __parse__() {
                             fi
                         fi
                     else
-                        out+="${out:+$nl}$l"
+                        if (( after_block == 1 )); then
+                            out+="$l"
+                            after_block=0
+                        else
+                            out+="${out:+$nl}$l"
+                        fi
                     fi
                 fi
-            else
+            elif (( in_inner == 1 )); then
+                l_trim="${l#"${l%%[![:space:]]*}"}"
+                if [[ "$l_trim" == "::"* ]]; then
+                    l="${l_trim#::}"
+                    [[ "$l" == [[:blank:]]* ]] && l="${l:1}"
+                fi
                 if [[ "${l//[[:space:]]/}" == "$btt" ]]; then
                     in_inner=0
                     out+="</code></pre>"
+                    after_block=1
                 else
                     l="${l//&/$_amp}"; l="${l//</$_lt}"; l="${l//>/$_gt}"
-                    out+="$l$nl"
+                    if (( first_code_line == 1 )); then
+                        out+="$l"
+                        first_code_line=0
+                    else
+                        out+="$nl$l"
+                    fi
+                fi
+            elif (( in_inner == 2 )); then
+                l_trim="${l#"${l%%[![:space:]]*}"}"
+                if [[ "$l_trim" == "::"* ]]; then
+                    l="${l_trim#::}"
+                    [[ "$l" == [[:blank:]]* ]] && l="${l:1}"
+                    l_trim="${l#"${l%%[![:space:]]*}"}"
+                fi
+                r_trim="${l_trim%"${l_trim##*[![:space:]]}"}"
+                if [[ "$r_trim" == "{{"*"block.end"*"}}" ]]; then
+                    in_inner=0
+                    out+="</code></pre>"
+                    after_block=1
+                else
+                    l="${l//&/$_amp}"; l="${l//</$_lt}"; l="${l//>/$_gt}"
+                    if (( first_code_line == 1 )); then
+                        out+="$l"
+                        first_code_line=0
+                    else
+                        out+="$nl$l"
+                    fi
+                fi
+            elif (( in_inner == 3 )); then
+                l_trim="${l#"${l%%[![:space:]]*}"}"
+                if [[ "$l_trim" == "::"* ]]; then
+                    l="${l_trim#::}"
+                    [[ "$l" == [[:blank:]]* ]] && l="${l:1}"
+                    l_trim="${l#"${l%%[![:space:]]*}"}"
+                fi
+                r_trim="${l_trim%"${l_trim##*[![:space:]]}"}"
+                if [[ "$r_trim" == "{{"*"block.end"*"}}" ]]; then
+                    in_inner=0
+                    local OIFS="$IFS"; IFS=$'\n'
+                    local tex_content="${tex_lines[*]}"
+                    IFS="$OIFS"
+                    local svg_output="${LATEX_MEM_CACHE["block:${tex_content}"]:-}"
+                    if [[ -z "$svg_output" ]]; then
+                        svg_output=$("$_WIKI_DIR/bin/latex" --stdout --dpr 0.4 <<< "$tex_content")
+                        svg_output="${svg_output//rgba(0,0,0,1)/var(--fg)}"
+                        LATEX_MEM_CACHE["block:${tex_content}"]="$svg_output"
+                    fi
+                    out+="<div class=\"latex\">${svg_output}</div>"
+                    after_block=1
+                else
+                    tex_lines+=("$l")
+                fi
+            elif (( in_inner == 4 )); then
+                l_trim="${l#"${l%%[![:space:]]*}"}"
+                if [[ "$l_trim" == "::"* ]]; then
+                    l="${l_trim#::}"
+                    [[ "$l" == [[:blank:]]* ]] && l="${l:1}"
+                    l_trim="${l#"${l%%[![:space:]]*}"}"
+                fi
+                r_trim="${l_trim%"${l_trim##*[![:space:]]}"}"
+                if [[ "$r_trim" == "$$" ]]; then
+                    in_inner=0
+                    local OIFS="$IFS"; IFS=$'\n'
+                    local tex_content="${tex_lines[*]}"
+                    IFS="$OIFS"
+                    local svg_output="${LATEX_MEM_CACHE["block:${tex_content}"]:-}"
+                    if [[ -z "$svg_output" ]]; then
+                        svg_output=$("$_WIKI_DIR/bin/latex" --stdout --dpr 0.4 <<< "$tex_content")
+                        svg_output="${svg_output//rgba(0,0,0,1)/var(--fg)}"
+                        LATEX_MEM_CACHE["block:${tex_content}"]="$svg_output"
+                    fi
+                    out+="<div class=\"latex\">${svg_output}</div>"
+                    after_block=1
+                else
+                    tex_lines+=("$l")
                 fi
             fi
         done
@@ -548,7 +755,6 @@ __parse__() {
         REPLY="$out"
         return 0
     }    
-
 
     __parse_block_field() {
         __parse_block_field_r "$@"
@@ -649,42 +855,56 @@ __parse__() {
         local l_trim="${line#"${line%%[![:space:]]*}"}"
         local curr_indent="${line:0:${#line}-${#l_trim}}"
         if [[ -n "$in_custom_block" ]]; then
-            if [[ "$curr_indent" == "$custom_block_indent" && "$l_trim" == "{{"*"block.end"*"}}" ]]; then
-                local inner="${l_trim#\{\{}"
-                inner="${inner%"${inner##*[![:space:]]}"}"
-                inner="${inner%\}\}}"
-                inner="${inner#"${inner%%[![:space:]]*}"}"
-                inner="${inner%"${inner##*[![:space:]]}"}"
-                if [[ "$inner" == "block.end" ]]; then
-                    case "$in_custom_block" in
-                        def) __block_core "def" custom_block_buffer ;;
-                        table) __block_table ;;
-                        diagram) __block_diagram ;;
-                        hide) __block_hide ;;
-                        row) __block_row "row" custom_block_buffer ;;
-                        carousel) __block_carousel "carousel" custom_block_buffer ;;
-                        card) __block_card "card" custom_block_buffer ;;
-                        buttons) __block_buttons "buttons" custom_block_buffer ;;
-                        text) __block_text "text" custom_block_buffer ;;
-                        image) __block_image "image" custom_block_buffer ;;
-                        grid) __block_grid "grid" custom_block_buffer ;;
-                        plain) __block_plain "plain" custom_block_buffer ;;
-                        pre) __block_pre "pre" custom_block_buffer ;;
-                        tex) __block_tex "tex" custom_block_buffer ;;
-                        quote) __block_quote "quote" custom_block_buffer ;;
-                        globals|comment) : ;;
-                        blockquote) content+="</blockquote>"$'\n' ;;
-                        *)
-                            if [[ -n "${WIKI_BLOCKS[$in_custom_block]:-}" ]]; then
-                                content+="</div>"$'\n'
-                            elif declare -F "__block_${in_custom_block}" >/dev/null; then
-                                "__block_${in_custom_block}" "$in_custom_block" custom_block_buffer
-                            else
-                                __block_core "$in_custom_block" custom_block_buffer
-                            fi
-                            ;;
-                    esac
-                    in_custom_block=""; custom_block_indent=""; ignore_next_empty=1; return 0
+            local check_trim="$l_trim"
+            if [[ "$check_trim" == "::"* ]]; then
+                local after_c="${check_trim#::}"
+                after_c="${after_c#"${after_c%%[![:space:]]*}"}"
+                [[ "$after_c" == "{{"*"}}"* ]] && check_trim="$after_c"
+            fi
+            if [[ "$check_trim" == "{{"*"}}"* ]]; then
+                local r_trim="${check_trim%"${check_trim##*[![:space:]]}"}"
+                if [[ "$r_trim" == "{{"*"}}" ]]; then
+                    local inner="${r_trim#\{\{}"
+                    inner="${inner%\}\}}"
+                    inner="${inner#"${inner%%[![:space:]]*}"}"
+                    inner="${inner%"${inner##*[![:space:]]}"}"
+                    if [[ "$inner" == "block.end" ]]; then
+                        if (( ${custom_block_depth:-0} > 0 )); then
+                            (( custom_block_depth-- ))
+                        elif [[ "$curr_indent" == "$custom_block_indent" ]]; then
+                            case "$in_custom_block" in
+                                def) __block_core "def" custom_block_buffer ;;
+                                table) __block_table ;;
+                                diagram) __block_diagram ;;
+                                hide) __block_hide ;;
+                                row) __block_row "row" custom_block_buffer ;;
+                                carousel) __block_carousel "carousel" custom_block_buffer ;;
+                                card) __block_card "card" custom_block_buffer ;;
+                                buttons) __block_buttons "buttons" custom_block_buffer ;;
+                                text) __block_text "text" custom_block_buffer ;;
+                                image) __block_image "image" custom_block_buffer ;;
+                                grid) __block_grid "grid" custom_block_buffer ;;
+                                plain) __block_plain "plain" custom_block_buffer ;;
+                                pre) __block_pre "pre" custom_block_buffer ;;
+                                tex) __block_tex "tex" custom_block_buffer ;;
+                                quote) __block_quote "quote" custom_block_buffer ;;
+                                globals|comment) : ;;
+                                blockquote) content+="</blockquote>"$'\n' ;;
+                                *)
+                                    if [[ -n "${WIKI_BLOCKS[$in_custom_block]:-}" ]]; then
+                                        content+="</div>"$'\n'
+                                    elif declare -F "__block_${in_custom_block}" >/dev/null; then
+                                        "__block_${in_custom_block}" "$in_custom_block" custom_block_buffer
+                                    else
+                                        __block_core "$in_custom_block" custom_block_buffer
+                                    fi
+                                    ;;
+                            esac
+                            in_custom_block=""; custom_block_indent=""; custom_block_depth=0; ignore_next_empty=1; return 0
+                        fi
+                    elif [[ "$inner" == "block."* && "$in_custom_block" != "row" && "$in_custom_block" != "carousel" && "$in_custom_block" != "grid" && "$in_custom_block" != "text" ]]; then
+                        (( custom_block_depth++ ))
+                    fi
                 fi
             fi
             case "$in_custom_block" in
@@ -735,6 +955,7 @@ __parse__() {
                             content="${content%<br><br>$'\n'}"
                             in_custom_block="$bname"
                             custom_block_indent="$curr_indent"
+                            custom_block_depth=0
                             case "$bname" in
                                 table) table_buffer=() ;;
                                 diagram) diagram_buffer=() ;;
@@ -755,7 +976,7 @@ __parse__() {
             fi
         fi
         return 1
-    }
+    }  
 
     __parse_vars() {
         if [[ "$line" == *"{{"* ]]; then

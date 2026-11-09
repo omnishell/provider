@@ -191,7 +191,7 @@ __render__() {
         if shopt -q patsub_replacement 2>/dev/null; then _amp="\\&amp;"; _lt="\\&lt;"; _gt="\\&gt;"; fi
         local content="" rendered="" in_frontmatter=0 title="$pagename" TOC_HTML="<ul class=\"toc\">"$'\n'
         local page_table_count=0 page_diagram_count=0
-        local in_code_block=0 in_html_pre=0 in_custom_block="" custom_block_indent="" list_depth=0 was_empty=0 ignore_next_empty=0 set_ignore_this_turn=0 line
+        local in_code_block=0 in_html_pre=0 in_custom_block="" custom_block_indent="" custom_block_depth=0 list_depth=0 was_empty=0 ignore_next_empty=0 set_ignore_this_turn=0 line
         local -a table_buffer=() diagram_buffer=() custom_block_buffer=() hide_buffer=() KEYS_STACK=() LIST_INDENTS=() LIST_TYPES=() lines=()
         local -A PAGE_VARS=()
         local raw_file=""
@@ -462,7 +462,7 @@ __render__() {
                     return out
                 }
                 BEGIN {
-                    in_def = 0; def_indent = ""; buf_len = 0
+                    in_def = 0; def_indent = ""; buf_len = 0; inner_depth = 0
                     ctx_key = "__context" "__"
                     id_key = "__id" "__"
                     entry_key = "__entry" "__"
@@ -503,6 +503,7 @@ __render__() {
                             sub(/\{\{.*$/, "", def_indent)
                             buf_len = 0
                             bail = 0
+                            inner_depth = 0
                             next
                         }
                         if (acc_preblock != "") {
@@ -515,6 +516,22 @@ __render__() {
                         l_trim = raw_line
                         sub(/^[ \t]+/, "", l_trim)
                         curr_ind = substr(raw_line, 1, length(raw_line) - length(l_trim))
+                        check_trim = l_trim
+                        if (check_trim ~ /^::[ \t]*\{\{/) {
+                            sub(/^::[ \t]*/, "", check_trim)
+                        }
+                        if (check_trim ~ /^\{\{[ \t]*block\.end[ \t]*\}\}[ \t]*$/) {
+                            if (inner_depth > 0) {
+                                inner_depth--
+                                buf[++buf_len] = raw_line
+                                next
+                            }
+                        } else if (check_trim ~ /^\{\{[ \t]*block\.[a-zA-Z0-9_-]+.*\}\}[ \t]*$/) {
+                            inner_depth++
+                            bail = 1
+                            buf[++buf_len] = raw_line
+                            next
+                        }
                         if (curr_ind == def_indent && l_trim ~ /^\{\{[ \t]*block\.end[ \t]*\}\}[ \t]*$/) {
                             if (bail) {
                                 if (acc_preblock != "") {
@@ -699,6 +716,9 @@ __render__() {
                             buf[++buf_len] = raw_line
                             if (index(raw_line, btt_str) > 0) bail = 1
                             else if (index(raw_line, "<pre") > 0) bail = 1
+                            else if (index(raw_line, "$$") > 0) bail = 1
+                            else if (index(raw_line, "block.tex") > 0) bail = 1
+                            else if (index(raw_line, "block.code") > 0) bail = 1
                         }
                     }
                 }
@@ -743,12 +763,9 @@ __render__() {
         else
             mapfile -t lines < "$file"
         fi
-
         __parse_main
-
         TOC_HTML+="</ul>"
         content="${content//\{\{TOC_PLACEHOLDER\}\}/$TOC_HTML}"
-
         if [[ "$content" == *"%%WIKI_REF:"* ]]; then
             local tmp_c="${content//%%WIKI_REF:/$'\x02'}"
             set -f
@@ -814,10 +831,9 @@ __render__() {
         fi
         __search_index
         __render_template
-
         [[ -n "${WIKI_SEARCH_JS:-}" ]] && rendered="${rendered//%%WIKI_SEARCH_CONFIG%%/$WIKI_SEARCH_JS}"
         printf "%s" "$rendered" > "$out_path"
         __log "Rendered -> $out_path" -t success -l wiki
-    }    
+    }   
 
 }

@@ -7,10 +7,35 @@ __blocks__() {
         local -n buffer_ref="$2"
         local -a BLOCK_KEYS=()
         local -A BLOCK_VALS=()
-        local current_key="" current_val="" b_line l_trim after_col k_part v_part
+        local current_key="" current_val="" b_line l_trim r_trim inner after_col k_part v_part
+        local nested_depth=0
         for b_line in "${buffer_ref[@]}"; do
             l_trim="${b_line#"${b_line%%[![:space:]]*}"}"
             if [[ "$l_trim" == "::"* ]]; then
+                after_col="${l_trim#::}"
+                if [[ "$after_col" == [[:blank:]]* ]]; then
+                    after_col="${after_col:1}"
+                fi
+                local sub_trim="${after_col#"${after_col%%[![:space:]]*}"}"
+                if [[ "$sub_trim" == "{{"*"}}"* ]]; then
+                    l_trim="$sub_trim"
+                fi
+            fi
+            if [[ "$l_trim" == "{{"*"}}"* ]]; then
+                r_trim="${l_trim%"${l_trim##*[![:space:]]}"}"
+                if [[ "$r_trim" == "{{"*"}}" ]]; then
+                    inner="${r_trim#\{\{}"
+                    inner="${inner%\}\}}"
+                    inner="${inner#"${inner%%[![:space:]]*}"}"
+                    inner="${inner%"${inner##*[![:space:]]}"}"
+                    if [[ "$inner" == "block.end" ]]; then
+                        (( nested_depth > 0 )) && (( nested_depth-- ))
+                    elif [[ "$inner" == block.* ]]; then
+                        (( nested_depth++ ))
+                    fi
+                fi
+            fi
+            if (( nested_depth == 0 )) && [[ "$l_trim" == "::"* ]]; then
                 after_col="${l_trim#::}"
                 after_col="${after_col#"${after_col%%[![:space:]]*}"}"
                 if [[ "$after_col" == *:* ]]; then
@@ -171,6 +196,7 @@ __blocks__() {
         fi
         LIST_HTML_MAP["$bname"]+="<li><a href=\"#${anchor_id}\">${BLOCK_TITLE}</a></li>"$'\n'
     }
+
     
     __block_quote() {
         local bname="$1"
