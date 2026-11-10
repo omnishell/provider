@@ -543,6 +543,7 @@ __build__() {
         return 0
     }
 
+    
     __build_main() {
         if [[ -n "$p_name" ]]; then build_targets=("$p_name")
         else build_targets=("${_pages[@]}"); fi
@@ -767,10 +768,18 @@ __build__() {
             for p in "${render_targets[@]}"; do
                 rt_files+=("${page_file_map[$p]}")
             done
-            local m_expr
-            while IFS= read -r m_expr; do
+            local m_type m_expr
+            while IFS=$'\x1F' read -r m_type m_expr; do
                 [[ -z "$m_expr" ]] && continue
-                if [[ -z "${LATEX_MEM_CACHE["inline:${m_expr}"]:-}" ]]; then
+                if [[ "$m_type" == "B" ]]; then
+                    local b_expr="${m_expr//$'\x02'/$'\n'}"
+                    if [[ -z "${LATEX_MEM_CACHE["block:${b_expr}"]:-}" ]]; then
+                        local svg_output
+                        svg_output=$("$_WIKI_DIR/bin/latex" --stdout --dpr 0.4 <<< "$b_expr")
+                        svg_output="${svg_output//rgba(0,0,0,1)/var(--fg)}"
+                        LATEX_MEM_CACHE["block:${b_expr}"]="$svg_output"
+                    fi
+                elif [[ -z "${LATEX_MEM_CACHE["inline:${m_expr}"]:-}" ]]; then
                     local svg_output
                     svg_output=$("$_WIKI_DIR/bin/latex" --stdout --inline --dpr 0.4 <<< "${m_expr}\\rule{0pt}{0pt}")
                     svg_output="${svg_output//rgba(0,0,0,1)/var(--fg)}"
@@ -785,26 +794,75 @@ __build__() {
                     LATEX_MEM_CACHE["inline:${m_expr}"]="<span class=\"latex-inline\" style=\"vertical-align: calc(${align});\">${svg_output}</span>"
                 fi
             done < <(LC_ALL=C awk '
-                /\$/ {
-                    s = $0
-                    gsub(/\$\$/, "")
-                    bt = sprintf("%c", 96)
-                    while ((i1 = index(s, bt)) > 0) {
-                        r = substr(s, i1 + 1)
-                        i2 = index(r, bt)
-                        if (i2 == 0) break
-                        s = substr(s, 1, i1 - 1) substr(r, i2 + 1)
+                FNR == 1 { in_tex = 0; tex_buf = "" }
+                {
+                    sub(/\r$/, "")
+                    c_line = $0
+                    sub(/^[ \t]+/, "", c_line)
+                    if (c_line ~ /^::[ \t]?/) {
+                        sub(/^::[ \t]?/, "", c_line)
+                        sub(/^[ \t]+/, "", c_line)
                     }
-                    while ((i1 = index(s, "$")) > 0) {
-                        r = substr(s, i1 + 1)
-                        i2 = index(r, "$")
-                        if (i2 == 0) break
-                        m = substr(r, 1, i2 - 1)
-                        if (m != "" && !(m in seen)) {
-                            seen[m] = 1
-                            print m
+                    r_line = c_line
+                    sub(/[ \t]+$/, "", r_line)
+                    if (in_tex == 1) {
+                        if (r_line ~ /^\{\{[ \t]*block\.end[ \t]*\}\}$/) {
+                            if (tex_buf != "" && !(("B:" tex_buf) in seen)) {
+                                seen["B:" tex_buf] = 1
+                                print "B\x1F" tex_buf
+                            }
+                            in_tex = 0; tex_buf = ""
+                        } else {
+                            tex_buf = (tex_buf == "" ? c_line : tex_buf "\x02" c_line)
                         }
-                        s = substr(r, i2 + 1)
+                        next
+                    } else if (in_tex == 2) {
+                        if (r_line == "$$") {
+                            if (tex_buf != "" && !(("B:" tex_buf) in seen)) {
+                                seen["B:" tex_buf] = 1
+                                print "B\x1F" tex_buf
+                            }
+                            in_tex = 0; tex_buf = ""
+                        } else {
+                            tex_buf = (tex_buf == "" ? c_line : tex_buf "\x02" c_line)
+                        }
+                        next
+                    }
+                    if (r_line ~ /^\{\{[ \t]*block\.tex[ \t]*\}\}$/) {
+                        in_tex = 1; tex_buf = ""; next
+                    }
+                    if (r_line == "$$") {
+                        in_tex = 2; tex_buf = ""; next
+                    }
+                    if (r_line ~ /^\$\$.+\$\$$/ && length(r_line) > 4) {
+                        b_m = substr(r_line, 3, length(r_line) - 4)
+                        if (b_m != "" && !(("B:" b_m) in seen)) {
+                            seen["B:" b_m] = 1
+                            print "B\x1F" b_m
+                        }
+                        next
+                    }
+                    if (index($0, "$") > 0) {
+                        s = $0
+                        gsub(/\$\$/, "")
+                        bt = sprintf("%c", 96)
+                        while ((i1 = index(s, bt)) > 0) {
+                            r = substr(s, i1 + 1)
+                            i2 = index(r, bt)
+                            if (i2 == 0) break
+                            s = substr(s, 1, i1 - 1) substr(r, i2 + 1)
+                        }
+                        while ((i1 = index(s, "$")) > 0) {
+                            r = substr(s, i1 + 1)
+                            i2 = index(r, "$")
+                            if (i2 == 0) break
+                            m = substr(r, 1, i2 - 1)
+                            if (m != "" && !(("I:" m) in seen)) {
+                                seen["I:" m] = 1
+                                print "I\x1F" m
+                            }
+                            s = substr(r, i2 + 1)
+                        }
                     }
                 }
             ' "${rt_files[@]}")
@@ -972,7 +1030,7 @@ __build__() {
             done
         fi
     }
-    
+
     __build_search_index() {
         {
             for f in "${!CACHE_HASHES[@]}"; do
@@ -1073,11 +1131,12 @@ __build__() {
                             pair = ref_key "::" r
                             if (!(pair in seen_deps)) {
                                 seen_deps[pair] = 1
-                                if (defs_deps[ref_key] != "") {
-                                    defs_deps[ref_key] = defs_deps[ref_key] ",\"" r "\""
-                                } else {
-                                    defs_deps[ref_key] = "\"" r "\""
-                                }
+                                defs_deps[ref_key] = (defs_deps[ref_key] != "" ? defs_deps[ref_key] ",\"" r "\"" : "\"" r "\"")
+                            }
+                            rpair = r "::" ref_key
+                            if (!(rpair in seen_rdeps)) {
+                                seen_rdeps[rpair] = 1
+                                defs_rdeps[r] = (defs_rdeps[r] != "" ? defs_rdeps[r] ",\"" ref_key "\"" : "\"" ref_key "\"")
                             }
                         }
                     }
@@ -1088,13 +1147,13 @@ __build__() {
                 for (i = 1; i <= k_count; i++) {
                     k = keys_order[i]
                     if (i > 1) printf ","
-                    printf "\n  \"%s\": { \"url\": \"%s\", \"deps\": [ %s ] }", k, defs_urls[k], defs_deps[k]
+                    printf "\n  \"%s\": { \"url\": \"%s\", \"deps\": [ %s ], \"rdeps\": [ %s ] }", k, defs_urls[k], defs_deps[k], defs_rdeps[k]
                 }
                 printf "\n}\n"
             }
         ' <<< "$defs_data" > "$BUILDDIR/defs.json"
         __log "Generated defs index -> $BUILDDIR/defs.json" -t success -l wiki
-    }
+    }   
 
     __build_sitemap() {
         local domain=""

@@ -271,12 +271,23 @@ __blocks__() {
             BLOCK_VALS["__context__"]="${BLOCK_VALS[context]}"
             BLOCK_DISPLAY_KEYS["context"]=""
         fi
+        local def_ctx="${BLOCK_VALS[__context__]:-}"
+        local self_raw="${BLOCK_VALS[__id__]:-${BLOCK_VALS[__entry__]:-${BLOCK_VALS[term]:-}}}"
+        local self_slug=""
+        if [[ -n "$self_raw" ]]; then
+            if [[ -n "$def_ctx" && "$self_raw" != *.* ]]; then
+                __slugify_r "${def_ctx}.${self_raw}"
+            else
+                __slugify_r "$self_raw"
+            fi
+            self_slug="$REPLY"
+        fi
         if [[ -z "${BLOCK_VALS[related]:-}" && -z "${BLOCK_VALS[__refs__]:-}" ]]; then
-            local text_to_scan="${BLOCK_VALS[idea]:-}${BLOCK_VALS[details]:-}"
+            local text_to_scan="${BLOCK_VALS[idea]:-}"$'\n'"${BLOCK_VALS[details]:-}"
             if [[ "$text_to_scan" == *"{{"*":"*"}}"* ]]; then
                 local extracted_refs=""
                 local -A seen_refs=()
-                local rem="$text_to_scan" inner t_topic t_rest t_ref full_ref
+                local rem="$text_to_scan" inner t_topic t_rest t_ref full_ref ref_slug
                 while [[ "$rem" == *"{{"*"}}"* ]]; do
                     rem="${rem#*\{\{}"
                     inner="${rem%%\}\}*}"
@@ -285,12 +296,18 @@ __blocks__() {
                         inner="${inner#"${inner%%[![:space:]]*}"}"
                         inner="${inner%"${inner##*[![:space:]]}"}"
                         t_topic="${inner%%:*}"
-                        if [[ -n "$t_topic" && -z "${t_topic//[a-zA-Z0-9_-]/}" && "$t_topic" != "page" ]]; then
+                        if [[ -n "$t_topic" && -z "${t_topic//[a-zA-Z0-9_-]/}" && "$t_topic" != "page" && "$t_topic" != "block" ]]; then
                             t_rest="${inner#*:}"
                             t_ref="${t_rest%%:*}"
                             t_ref="${t_ref#"${t_ref%%[![:space:]]*}"}"
                             t_ref="${t_ref%"${t_ref##*[![:space:]]}"}"
                             if [[ -n "$t_ref" ]]; then
+                                if [[ "$t_topic" == "def" && -n "$def_ctx" && "$t_ref" != *.* ]]; then
+                                    t_ref="${def_ctx}.${t_ref}"
+                                fi
+                                __slugify_r "$t_ref"
+                                ref_slug="$REPLY"
+                                [[ "$t_topic" == "def" && -n "$self_slug" && "$ref_slug" == "$self_slug" ]] && continue
                                 full_ref="${t_topic}.${t_ref}"
                                 if [[ -z "${seen_refs[$full_ref]:-}" ]]; then
                                     seen_refs["$full_ref"]=1
@@ -332,6 +349,7 @@ __blocks__() {
             BLOCK_DISPLAY_KEYS["related"]="__refs__"
         fi
     }
+    
 
     __block_def() {
         __block_core "$1" "$2"
