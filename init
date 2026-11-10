@@ -1,0 +1,46 @@
+#! /bin/bash
+
+PROVIDER_NAME="omni"
+PROVIDER_DESCRIPTION="Core omni tools and contexts provider"
+PROVIDER_VERSION="0.1.0"
+
+# Tools metadata
+declare -gA PROVIDER_TOOLS_URL 2>/dev/null || true
+declare -gA PROVIDER_TOOLS_PATH 2>/dev/null || true
+declare -gA PROVIDER_TOOLS_DESC 2>/dev/null || true
+
+# Tools in external repositories
+PROVIDER_TOOLS_URL[debug]="https://github.com/omnishell/debug.git"
+PROVIDER_TOOLS_DESC[debug]="Operating system debugger (process, log, system metrics)"
+
+PROVIDER_TOOLS_URL[g]="https://github.com/omnishell/g.git"
+PROVIDER_TOOLS_DESC[g]="Git workflow manager (branch, commit, stage, history)"
+
+PROVIDER_TOOLS_URL[hardware]="https://github.com/omnishell/hardware.git"
+PROVIDER_TOOLS_DESC[hardware]="Hardware manager (monitors, wifi connections)"
+
+PROVIDER_TOOLS_URL[otp]="https://github.com/omnishell/otp.git"
+PROVIDER_TOOLS_DESC[otp]="Multi-factor authentication (OTP) tool"
+
+PROVIDER_TOOLS_URL[preprint]="https://github.com/omnishell/preprint.git"
+PROVIDER_TOOLS_DESC[preprint]="Academic preprint and publication manager (arXiv, Zenodo, HAL, ORCID)"
+
+PROVIDER_TOOLS_URL[py]="https://github.com/omnishell/py.git"
+PROVIDER_TOOLS_DESC[py]="Python environment, project, and dependency manager"
+
+PROVIDER_TOOLS_URL[social]="https://github.com/omnishell/social.git"
+PROVIDER_TOOLS_DESC[social]="Social media content, templates, and publishing manager"
+
+PROVIDER_TOOLS_URL[web]="https://github.com/omnishell/web.git"
+PROVIDER_TOOLS_DESC[web]="Web bookmarks, protocols, and search manager"
+
+PROVIDER_TOOLS_URL[wiki]="https://github.com/omnishell/wiki.git"
+PROVIDER_TOOLS_DESC[wiki]="Personal wiki, notes, and documentation builder"
+
+# Contexts metadata
+declare -gA PROVIDER_CONTEXTS_URL 2>/dev/null || true
+declare -gA PROVIDER_CONTEXTS_PATH 2>/dev/null || true
+declare -gA PROVIDER_CONTEXTS_DESC 2>/dev/null || true
+
+PROVIDER_CONTEXTS_URL[contexts]="https://github.com/omnishell/contexts.git"
+PROVIDER_CONTEXTS_DESC[contexts]="Core omni contexts collection"
