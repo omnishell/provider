@@ -13,11 +13,11 @@ declare -gA PROVIDER_TOOLS_DESC 2>/dev/null || true
 PROVIDER_TOOLS_URL[debug]="https://github.com/omnishell/debug.git"
 PROVIDER_TOOLS_DESC[debug]="Operating system debugger (process, log, system metrics)"
 
+PROVIDER_TOOLS_URL[device]="https://github.com/omnishell/device.git"
+PROVIDER_TOOLS_DESC[device]="Device manager (displays, wifi, bluetooth, usb, pci, audio, power, input, camera)"
+
 PROVIDER_TOOLS_URL[g]="https://github.com/omnishell/g.git"
 PROVIDER_TOOLS_DESC[g]="Git workflow manager (branch, commit, stage, history)"
-
-PROVIDER_TOOLS_URL[hardware]="https://github.com/omnishell/hardware.git"
-PROVIDER_TOOLS_DESC[hardware]="Hardware manager (monitors, wifi connections)"
 
 PROVIDER_TOOLS_URL[otp]="https://github.com/omnishell/otp.git"
 PROVIDER_TOOLS_DESC[otp]="Multi-factor authentication (OTP) tool"

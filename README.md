@@ -10,7 +10,7 @@
 | :--- | :--- | :--- |
 | [`debug`](../debug/README.md) | `https://github.com/omnishell/debug.git` | Operating system debugger (`/proc` process manager, log viewer, and system inspector) |
 | [`g`](../g/README.md) | `https://github.com/omnishell/g.git` | Interactive Git workflow manager (`fzf` + `vimdiff` staging, history editing, branches, tags, conflicts) |
-| [`hardware`](../hardware/README.md) | `https://github.com/omnishell/hardware.git` | Hardware manager for multi-monitor (`xrandr`) and Wi-Fi (`nmcli`) configuration |
+| [`device`](../device/README.md) | `https://github.com/omnishell/device.git` | Device manager for displays, wifi, bluetooth, usb, pci, audio, power, backlight, input, and camera |
 | [`otp`](../otp/README.md) | `https://github.com/omnishell/otp.git` | Multi-factor authentication (TOTP/OTP) code generator and secret manager |
 | [`preprint`](../preprint/README.md) | `https://github.com/omnishell/preprint.git` | Academic preprint and publication manager for arXiv, Zenodo, HAL, and ORCID |
 | [`py`](../py/README.md) | `https://github.com/omnishell/py.git` | Python environment, project, library, lockfile, build, and PyPI publishing manager |
