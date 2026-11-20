@@ -14,7 +14,7 @@ PROVIDER_TOOLS_URL[debug]="https://github.com/omnishell/debug.git"
 PROVIDER_TOOLS_DESC[debug]="Operating system debugger (process, log, system metrics)"
 
 PROVIDER_TOOLS_URL[device]="https://github.com/omnishell/device.git"
-PROVIDER_TOOLS_DESC[device]="Device manager (displays, wifi, bluetooth, usb, pci, audio, power, input, camera)"
+PROVIDER_TOOLS_DESC[device]="Device manager (displays, networks, wifi, bluetooth, usb, pci, audio, power, backlight, input, camera)"
 
 PROVIDER_TOOLS_URL[g]="https://github.com/omnishell/g.git"
 PROVIDER_TOOLS_DESC[g]="Git workflow manager (branch, commit, stage, history)"
